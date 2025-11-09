@@ -23,10 +23,11 @@ MACHINE=${MACHINE} DISTRO=${DISTRO} . poky/oe-init-build-env ${BUILD_DIR}
 #add extra layers :
 # meta-openembedded/meta-oe 
 # meta-openembedded/meta-python 
+# meta-openembedded/meta-multimedia
 # meta-raspberrypi 
 # meta-custom-demo-application
 
-for layer in meta-openembedded/meta-oe meta-openembedded/meta-python meta-raspberrypi meta-custom-demo-application; do
+for layer in meta-openembedded/meta-oe meta-openembedded/meta-python meta-openembedded/meta-multimedia meta-raspberrypi meta-custom-demo-application; do
   L="${BSPDIR}/${layer}"
   if ! bitbake-layers show-layers | awk 'NR>1{print $2}' | grep -qx "$L"; then
     bitbake-layers add-layer "$L"
