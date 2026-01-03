@@ -3,21 +3,13 @@ pipeline {
 
     options {
        timestamps()
-       timeout(time: 2, unit: 'HOURS') // Increased timeout to 2 hours
-    }
-
-    parameters {
-        booleanParam(name: 'RUN_UT', defaultValue: true, description: 'Run unit tests')
+       timeout(time: 8, unit: 'HOURS') // Increased timeout to 2 hours
     }
 
     environment {
         PRJ = "${env.WORKSPACE}"
-        MY_SPACE_VOLUME_NAME = 'my_space_volume'
-        MY_SPACE_VOLUME_MAPPED = '/home/my_space_volume'
-        DOCKER_IMAGE_ARM = 'ginar/android_qt6_img:latest'
-        DOCKER_IMAGE_X86 = 'x86_gomoku_img:latest'
-        DOCKER_CONTAINER_NAME_ARM = 'gomoku_container_arm'
-        DOCKER_CONTAINER_NAME_X86 = 'gomoku_container_x86'
+        DOCKER_IMAGE = 'yocto_img:latest'
+        DOCKER_CONTAINER_NAME = 'yocto_container'
     }
 
     stages {
@@ -25,241 +17,92 @@ pipeline {
             steps {
                 script {
                     // Check if the Docker image exists locally
-                    def imageExists = sh(script: "docker images -q ${env.DOCKER_IMAGE_ARM}", returnStdout: true).trim()
+                    def imageExists = sh(script: "docker images -q ${env.DOCKER_IMAGE}", returnStdout: true).trim()
                     if (imageExists == "") {
-                        echo "Docker image ${env.DOCKER_IMAGE_ARM} not found locally. Pulling from Docker Hub..."
+                        echo "Docker image ${env.DOCKER_IMAGE} not found locally. Pulling from Docker Hub..."
                         retry(2) { //try max 2x 
-                            sh(script: "docker pull ${env.DOCKER_IMAGE_ARM}", returnStdout: true, returnStatus: false).eachLine { line ->
+                            sh(script: "docker pull ${env.DOCKER_IMAGE}", returnStdout: true, returnStatus: false).eachLine { line ->
                                 echo line
                             }
                         }
-                        echo "Docker image ${env.DOCKER_IMAGE_ARM} successfully pulled."
+                        echo "Docker image ${env.DOCKER_IMAGE} successfully pulled."
                     } else {
-                        echo "Docker image ${env.DOCKER_IMAGE_ARM} already exists locally. Skipping pull."
+                        echo "Docker image ${env.DOCKER_IMAGE} already exists locally. Skipping pull."
                     }
 
                     //Verify Docker Image
-                    def imageVerify = sh(script: "docker images -q ${env.DOCKER_IMAGE_ARM}", returnStdout: true).trim()
+                    def imageVerify = sh(script: "docker images -q ${env.DOCKER_IMAGE}", returnStdout: true).trim()
                     if (imageVerify == "") {
-                        error "Docker image ${env.DOCKER_IMAGE_ARM} not found after pull. Aborting."
+                        error "Docker image ${env.DOCKER_IMAGE} not found after pull. Aborting."
                     } else {
-                        echo "Docker image ${env.DOCKER_IMAGE_ARM} is available locally."
+                        echo "Docker image ${env.DOCKER_IMAGE} is available locally."
                     }
 
                     //Verify Docker container. If active, treat is as it was zombie
-                    def containerVerify = sh(script: "docker ps -a --filter 'name=${DOCKER_CONTAINER_NAME_ARM}' --format '{{.Names}}'", returnStdout: true).trim()
+                    def containerVerify = sh(script: "docker ps -a --filter 'name=${DOCKER_CONTAINER_NAME}' --format '{{.Names}}'", returnStdout: true).trim()
                     if (containerVerify != "") {
                         sh'''
-                            docker stop ${DOCKER_CONTAINER_NAME_ARM}
-                            docker rm ${DOCKER_CONTAINER_NAME_ARM}
+                            docker stop ${DOCKER_CONTAINER_NAME}
+                            docker rm ${DOCKER_CONTAINER_NAME}
                         '''
                     } 
                 }
+            }
+        }
 
+        stage('build yocto image') {
+            steps{
+                // script {
+                //     //Docker seems to have problem with building inside volume mapped folder. It crash PC unexpectedly
+                //     //That is why we are using /home/pokyuser/localWorkdir inside container instead of /volume/localWorkdir.
+                //     //'volume' is mapped to /home/media/jenkins_home on host. We only use /volume to copy artefacts back to host.
+                //     sh '''
+                //         docker run --rm --name ${DOCKER_CONTAINER_NAME} \
+                //         -v /home/media/jenkins_home:/volume:rw \
+                //         -w /volume \
+                //         --user pokyuser \
+                //         ${DOCKER_IMAGE} /bin/bash -c "
+
+                //         echo '----------- Clean (artefacts) YoctoRpi folder on host-----------'
+                //         rm -rf /volume/YoctoRpi/*
+
+                //         echo '----------- Build yocto image start -----------'
+                //         mkdir -p /home/pokyuser/localWorkdir
+                //         cd /home/pokyuser/localWorkdir
+                //         repo init -u https://github.com/zhalat/manifests.git -b rpi4/scarthgap -m default.xml
+                //         repo sync -j$(nproc) 
+                //         MACHINE=zh-rpi4 DISTRO=zh-distro source ./demo-custom-setup.sh build
+                //         bitbake zh-image
+                //         echo '----------- Build yocto image finished -----------'
+
+                //         echo '----------- Copy build artefacts to host -----------'
+                //         cp -r /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/zh-image-zh-rpi4.rootfs.wic.bz2 /volume/YoctoRpi/
+                //         cp -r /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/zh-image-zh-rpi4.rootfs.tar.bz2 /volume/YoctoRpi/
+                //         cp -r /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/zh-image-zh-rpi4.rootfs.manifest /volume/YoctoRpi/
+                //         cp -r /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/zh-image.env /volume/YoctoRpi/
+                //         cp -r /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/Image /volume/YoctoRpi/
+                //         cp -r /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/boot.scr /volume/YoctoRpi/
+                //         "
+                //     '''
+                // }
+                
+                //Archive  the image file
                 script {
-                    // Check if the Docker image exists locally
-                    def imageExists = sh(script: "docker images -q ${env.DOCKER_IMAGE_X86}", returnStdout: true).trim()
-                    if (imageExists == "") {
-                        echo "Docker image ${env.DOCKER_IMAGE_X86} not found locally. Building from dockerfile."
-                        sh'''
-                            docker build -t ${DOCKER_IMAGE_X86} -f a.src/ci/dockers/docker_build/Dockerfile_x86 .
-                        '''
-                        echo "Docker image ${env.DOCKER_IMAGE_X86} built sucesfully."
-                    }
-                    else {
-                        echo "Docker image ${env.DOCKER_IMAGE_X86} already exists locally. Skipping building."
-                    }
-
-                    //Verify Docker Image
-                    def imageVerify = sh(script: "docker images -q ${env.DOCKER_IMAGE_X86}", returnStdout: true).trim()
-                    if (imageVerify == "") {
-                        error "Docker image ${env.DOCKER_IMAGE_X86} not found after build. Aborting."
-                    } else {
-                        echo "Docker image ${env.DOCKER_IMAGE_X86} is available locally."
-                    }
-
-                    //Verify Docker container. If active, treat is as it was zombie
-                    def containerVerify = sh(script: "docker ps -a --filter 'name=${DOCKER_CONTAINER_NAME_X86}' --format '{{.Names}}'", returnStdout: true).trim()
-                    if (containerVerify != "") {
-                        sh'''
-                            docker stop ${DOCKER_CONTAINER_NAME_X86}
-                            docker rm ${DOCKER_CONTAINER_NAME_X86}
-                        '''
-                    } 
-                }                
-            }
-        }
-
-        stage('Clone repo') {
-            steps {
-                //This is temporary solution to have clean workspace in docker volume.
-                //Jenkins doesnt have root access to delete files created by docker with root user.
-                //Better solution is to configure Jenkins to have root access to workspace folder or use proper user in docker containers.
-                script {
-                    sh '''
-                        docker run --rm \
-                        --name ${DOCKER_CONTAINER_NAME_X86} \
-                        -v ${MY_SPACE_VOLUME_NAME}:/Gomoku:rw \
-                        -w /Gomoku \
-                        -e DEFAULT_TOOLCHAIN_PATH=/usr/bin \
-                        --user root \
-                        ${DOCKER_IMAGE_X86} \
-                        sh -c '
-                            echo "----------- clean all old artefacts -----------"
-                            rm -rf /Gomoku/*
-                        '
-                    '''
-
-                    sh '''
-                        mkdir -p ${MY_SPACE_VOLUME_MAPPED}
-                        rsync -rv --delete ${WORKSPACE}/ ${MY_SPACE_VOLUME_MAPPED}
-                    '''
+                    // Zip the entire images directory recursively and place the archive in the Jenkins workspace
+                    def imgDir = "/var/jenkins_home/YoctoRpi"
+                    sh """
+                        if [ -d "${imgDir}" ]; then
+                            cd "${imgDir}"
+                            zip -r "Rpi4SdImage.zip" .
+                        else
+                            echo "Directory ${imgDir} not found"
+                            exit 1
+                        fi
+                    """
+                    archiveArtifacts artifacts: "Rpi4SdImage.zip", allowEmptyArchive: false
                 }
-            }
-        }
-
-
-        stage('Build') {
-            parallel{
-                stage('Android'){
-                    steps{
-                        script {
-                            sh '''
-                                docker run --rm --name ${DOCKER_CONTAINER_NAME_ARM} \
-                                -v ${MY_SPACE_VOLUME_NAME}:/Gomoku:rw \
-                                -w /Gomoku \
-                                -e ANDROID_HOME=/home/zby/Android/Sdk \
-                                -e PATH=$PATH:/home/zby/Android/Sdk/cmdline-tools/latest/bin:/home/zby/Android/Sdk/platform-tools \
-                                --user root \
-                                ${DOCKER_IMAGE_ARM} /bin/bash -c "
-
-                                echo '----------- Build Android app-----------'
-
-                                echo '#[cmake]'
-                                /home/zby/Qt/Tools/CMake/bin/cmake -S /Gomoku/a.src/frontend/GUI -B /Gomoku/a.src/frontend/build_gui \
-                                -DCMAKE_GENERATOR:STRING='Unix Makefiles' \
-                                -DCMAKE_BUILD_TYPE:STRING=Release \
-                                -DQT_QMAKE_EXECUTABLE:FILEPATH=/home/zby/Qt/6.6.3/android_armv7/bin/qmake \
-                                -DCMAKE_PREFIX_PATH:PATH=/home/zby/Qt/6.6.3/android_armv7 \
-                                -DCMAKE_C_COMPILER:FILEPATH=/home/zby/Android/Sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin/clang \
-                                -DCMAKE_CXX_COMPILER:FILEPATH=/home/zby/Android/Sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ \
-                                -DANDROID_PLATFORM:STRING=android-23 \
-                                -DANDROID_NDK:PATH=/home/zby/Android/Sdk/ndk/25.1.8937393 \
-                                -DCMAKE_TOOLCHAIN_FILE:FILEPATH=/home/zby/Android/Sdk/ndk/25.1.8937393/build/cmake/android.toolchain.cmake \
-                                -DANDROID_USE_LEGACY_TOOLCHAIN_FILE:BOOL=OFF \
-                                -DANDROID_ABI:STRING=armeabi-v7a \
-                                -DANDROID_STL:STRING=c++_shared \
-                                -DCMAKE_FIND_ROOT_PATH:PATH=/home/zby/Qt/6.6.3/android_armv7 \
-                                -DQT_NO_GLOBAL_APK_TARGET_PART_OF_ALL:BOOL=ON \
-                                -DQT_HOST_PATH:PATH=/home/zby/Qt/6.6.3/gcc_64 \
-                                -DANDROID_SDK_ROOT:PATH=/home/zby/Android/Sdk \
-                                -DProtobuf_DIR:STRING=/home/zby/Android/protobuf-v5.27.0-rc3/lib/cmake/protobuf \
-                                -Dutf8_range_DIR:STRING=/home/zby/Android/protobuf-v5.27.0-rc3/lib/cmake/utf8_range \
-                                -Dabsl_DIR:STRING=/home/zby/Android/abseil/lib/cmake/absl \
-                                -DGTest_DIR:STRING=/home/zby/Android/gtest1.14/lib/cmake/GTest;
-
-                                echo '#[build]'
-                                cd /Gomoku/a.src/frontend/build_gui
-                                make
-
-                                echo '#[deploy to get apk files]'
-                                mkdir -p /tmp
-                                /home/zby/Qt/6.6.3/gcc_64/bin/androiddeployqt \
-                                --input /Gomoku/a.src/frontend/build_gui/android-GomokuFree-deployment-settings.json \
-                                --output /Gomoku/a.src/frontend/build_gui/android-build \
-                                --android-platform android-34 \
-                                --jdk /usr/lib/jvm/java-11-openjdk-amd64 --gradle --release
-
-                                echo '----------- Build Android app finished-----------'
-                                "
-                            '''
-                        }
-                        // Zip the apk file and archive it
-                        script {
-                            def apkDir = "${MY_SPACE_VOLUME_MAPPED}/a.src/frontend/build_gui/android-build/build/outputs/apk/release/"
-                            def apkFile = "android-build-release-unsigned.apk"
-                            sh "zip -j GomokuFreeAppGUI.zip ${apkDir}${apkFile}"
-                            archiveArtifacts artifacts: 'GomokuFreeAppGUI.zip', allowEmptyArchive: false
-                        }
-                    }
-                }
-                stage('x86'){
-                    steps{
-                        script {
-                            sh '''
-                                docker run --rm --name ${DOCKER_CONTAINER_NAME_X86} \
-                                -v ${MY_SPACE_VOLUME_NAME}:/Gomoku:rw \
-                                -w /Gomoku \
-                                -e DEFAULT_TOOLCHAIN_PATH=/usr/bin \
-                                --user root \
-                                ${DOCKER_IMAGE_X86} /bin/bash -c "
-
-                                echo '----------- Build x86 app-----------'
-            
-                                echo '#[cmake]'
-                                 cmake -S /Gomoku/a.src/frontend/CLI -B /Gomoku/a.src/frontend/build_cli \
-                                -DCMAKE_BUILD_TYPE=Release  \
-                                -DCMAKE_TOOLCHAIN_FILE="/Gomoku/a.src/backend/cmake/toolchain-gcc-default.cmake" \
-                                -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-
-                                echo '#[build]'
-                                cd /Gomoku/a.src/frontend/build_cli
-                                make
-
-                                echo '#[cmake UT]'
-                                cmake -S /Gomoku/a.src/backend -B /Gomoku/a.src/backend/build_ut \
-                                -DCMAKE_BUILD_TYPE=Release  \
-                                -DCMAKE_TOOLCHAIN_FILE="/Gomoku/a.src/backend/cmake/toolchain-gcc-default.cmake" \
-                                -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-
-                                echo '#[build UT]'
-                                cd /Gomoku/a.src/backend/build_ut
-                                make
-
-                                echo '----------- Build x86 app finished-----------'
-                                "
-                            '''
-                        }
-                        // Zip the bin file and archive it
-                        script {
-                            def apkDir = "${MY_SPACE_VOLUME_MAPPED}/a.src/frontend/build_cli/"
-                            def apkFile = "gomokuBackendCLI"
-                            sh "zip -j GomokuFreeAppCLI.zip ${apkDir}${apkFile}"
-                            archiveArtifacts artifacts: 'GomokuFreeAppCLI.zip', allowEmptyArchive: false
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('UT') {
-            when {
-                expression { return params.RUN_UT }
-            }
-            steps {
-                script{
-                    sh '''
-                        docker run --rm --name ${DOCKER_CONTAINER_NAME_X86} \
-                        -v ${MY_SPACE_VOLUME_NAME}:/Gomoku:rw \
-                        -w /Gomoku \
-                        -e DEFAULT_TOOLCHAIN_PATH=/usr/bin \
-                        --user root \
-                        ${DOCKER_IMAGE_X86} /bin/bash -c "
-
-                        echo '----------- Run UT-----------'
-                        /Gomoku/a.src/backend/build_ut/core/UT/ut --gtest_output=xml:/Gomoku/ut_test_results.xml
-                        echo '----------- Run UT finished-----------'
-                        "
-                    '''
-
-                    // Ensure the test results file is copied to the workspace
-                    sh '''
-                        cp ${MY_SPACE_VOLUME_MAPPED}/ut_test_results.xml ${WORKSPACE}/ut_test_results.xml
-                    '''
-                }
-
-                junit 'ut_test_results.xml'
             }
         }
     }
 }
+ 
