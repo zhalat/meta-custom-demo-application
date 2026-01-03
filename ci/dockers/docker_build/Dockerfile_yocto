@@ -1,0 +1,27 @@
+#On the base https://github.com/crops/poky-container
+
+# Base image
+FROM crops/poky:ubuntu-22.04
+USER root
+
+# install common utilities
+RUN apt-get update \
+ && apt-get install --no-install-recommends -y \
+    nano \
+    tree \
+    net-tools \
+    iputils-ping \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+# # (opcjonalnie) SSH – patrz uwagi niżej
+# RUN echo 'root:admin' | chpasswd \
+#  && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config \
+#  && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config \
+#  && mkdir -p /run/sshd
+
+# EXPOSE 22
+
+USER yocto
+
+# CMD ["/usr/sbin/sshd", "-D"]
