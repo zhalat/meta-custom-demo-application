@@ -52,50 +52,48 @@ pipeline {
 
         stage('build yocto image') {
             steps{
-                // script {
-                //     //Docker seems to have problem with building inside volume mapped folder. It crash PC unexpectedly
-                //     //That is why we are using /home/pokyuser/localWorkdir inside container instead of /volume/localWorkdir.
-                //     //'volume' is mapped to /home/media/jenkins_home on host. We only use /volume to copy artefacts back to host.
-                //     sh '''
-                //         docker run --rm --name ${DOCKER_CONTAINER_NAME} \
-                //         -v /home/media/jenkins_home:/volume:rw \
-                //         -w /volume \
-                //         --user pokyuser \
-                //         ${DOCKER_IMAGE} /bin/bash -c "
+                script {
+                    //Docker seems to have problem with building inside volume mapped folder. It crash PC unexpectedly
+                    //That is why we are using /home/pokyuser/localWorkdir inside container instead of /volume/localWorkdir.
+                    //'volume' is mapped to /home/media/jenkins_home on host. We only use /volume to copy artefacts back to host.
+                    sh '''
+                        docker run --rm --name ${DOCKER_CONTAINER_NAME} \
+                        -v /home/media/jenkins_home:/volume:rw \
+                        -w /volume \
+                        --user pokyuser \
+                        ${DOCKER_IMAGE} /bin/bash -c "
 
-                //         echo '----------- Clean (artefacts) YoctoRpi folder on host-----------'
-                //         rm -rf /volume/YoctoRpi/*
+                        echo '----------- Clean (artefacts) YoctoRpi folder on host-----------'
+                        rm -rf /volume/YoctoRpi/*
 
-                //         echo '----------- Build yocto image start -----------'
-                //         mkdir -p /home/pokyuser/localWorkdir
-                //         cd /home/pokyuser/localWorkdir
-                //         repo init -u https://github.com/zhalat/manifests.git -b rpi4/scarthgap -m default.xml
-                //         repo sync -j$(nproc) 
-                //         MACHINE=zh-rpi4 DISTRO=zh-distro source ./demo-custom-setup.sh build
-                //         bitbake zh-image
-                //         echo '----------- Build yocto image finished -----------'
+                        echo '----------- Build yocto image start -----------'
+                        mkdir -p /home/pokyuser/localWorkdir
+                        cd /home/pokyuser/localWorkdir
+                        repo init -u https://github.com/zhalat/manifests.git -b rpi4/scarthgap -m default.xml
+                        repo sync -j$(nproc) 
+                        MACHINE=zh-rpi4 DISTRO=zh-distro source ./demo-custom-setup.sh build
+                        bitbake zh-image
+                        echo '----------- Build yocto image finished -----------'
 
-                //         echo '----------- Copy build artefacts to host -----------'
-                //         cp -r /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/zh-image-zh-rpi4.rootfs.wic.bz2 /volume/YoctoRpi/
-                //         cp -r /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/zh-image-zh-rpi4.rootfs.tar.bz2 /volume/YoctoRpi/
-                //         cp -r /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/zh-image-zh-rpi4.rootfs.manifest /volume/YoctoRpi/
-                //         cp -r /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/zh-image.env /volume/YoctoRpi/
-                //         cp -r /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/Image /volume/YoctoRpi/
-                //         cp -r /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/boot.scr /volume/YoctoRpi/
-                //         "
-                //     '''
-                // }
+                        echo '----------- Copy build artefacts to host -----------'
+                        # Dereference any symlinks and overwrite existing targets with the real files
+                        cp -L --remove-destination /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/zh-image-zh-rpi4.rootfs.wic.bz2 /volume/YoctoRpi/
+                        cp -L --remove-destination /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/zh-image-zh-rpi4.rootfs.tar.bz2 /volume/YoctoRpi/
+                        cp -L --remove-destination /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/zh-image-zh-rpi4.rootfs.manifest /volume/YoctoRpi/
+                        cp -L --remove-destination /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/zh-image.env /volume/YoctoRpi/
+                        cp -L --remove-destination /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/Image /volume/YoctoRpi/
+                        cp -L --remove-destination /home/pokyuser/localWorkdir/build/tmp/deploy/images/zh-rpi4/boot.scr /volume/YoctoRpi/
+                        "
+                    '''
+                }
                 
                 //Archive  the image file
                 script {
-                    // Zip the entire images directory recursively and place the archive in the Jenkins workspace
                     def imgDir = "/var/jenkins_home/YoctoRpi"
                     sh """
                         if [ -d "${imgDir}" ]; then
-                            cd "${imgDir}"
-                            zip -r "Rpi4SdImage.zip" .
+                            zip -r ${env.WORKSPACE}/Rpi4SdImage.zip "${imgDir}"
                         else
-                            echo "Directory ${imgDir} not found"
                             exit 1
                         fi
                     """
