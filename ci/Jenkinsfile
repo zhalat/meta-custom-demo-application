@@ -87,12 +87,15 @@ pipeline {
                     '''
                 }
                 
-                //Archive  the image file
+                //Archive  the image file and make public to jenkins
                 script {
                     def imgDir = "/var/jenkins_home/YoctoRpi"
                     sh """
                         if [ -d "${imgDir}" ]; then
-                            zip -r ${env.WORKSPACE}/Rpi4SdImage.zip "${imgDir}"
+                            cd /var/jenkins_home
+                            ln -sfn YoctoRpi Rpi4SdImage
+                            zip -r "${env.WORKSPACE}/Rpi4SdImage.zip" Rpi4SdImage
+                            rm -f Rpi4SdImage
                         else
                             exit 1
                         fi
